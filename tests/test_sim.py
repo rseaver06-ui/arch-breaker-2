@@ -144,7 +144,7 @@ def test_theme_reloads_when_file_changes(tmp_path, monkeypatch):
 
 
 def _two():
-    st = new_game(11, 2)
+    st = new_game(11, 2, versus=True)
     for b in st.balls:
         b.held = False
     return st
@@ -160,30 +160,39 @@ def test_poach_catching_a_ball_makes_it_yours():
     assert b.owner == 1 and b.vy < 0
 
 
-def test_lost_ball_charges_its_owner_wherever_it_falls():
+def test_versus_ball_through_your_side_costs_you_points():
     st = _two()
-    b = st.balls[0]
-    b.x, b.y, b.vy = st.players[1].x, C.COURT_B + 20, 1.0
-    step(st, [Input(), Input()])
-    assert st.players[0].lives == C.LIVES - 1 and st.players[1].lives == C.LIVES
-
-
-def test_knocked_out_zone_is_a_wall():
-    st = _two()
-    st.players[1].alive = False
-    b = st.balls[0]
+    st.players[1].score = 100
+    b = st.balls[0]                      # P1's ball, falling on P2's side
     b.x, b.y, b.vy = st.players[1].x, C.COURT_B + 20, 1.0
     ev = step(st, [Input(), Input()])
-    assert b.vy < 0 and st.players[0].lives == C.LIVES and ("wall",) in ev
+    assert st.players[1].score == 100 - C.PENALTY and st.players[0].score == 0
+    assert ("penalty", 1, b.x) in ev
+    assert all(p.lives == C.LIVES and p.alive for p in st.players)
 
 
-def test_match_ends_when_one_player_is_left():
+def test_versus_ball_comes_back_after_a_second():
     st = _two()
-    st.players[1].lives = 1
     b = st.balls[1]
     b.x, b.y, b.vy = st.players[1].x, C.COURT_B + 20, 1.0
     step(st, [Input(), Input()])
-    assert not st.players[1].alive and st.mode == "over"
+    assert not any(x.owner == 1 for x in st.balls)
+    for _ in range(C.RESPAWN_TICKS):
+        step(st, [Input(), Input()])
+    mine = [x for x in st.balls if x.owner == 1]
+    assert len(mine) == 1 and mine[0].held
+
+
+def test_versus_score_never_goes_negative_and_ends_on_clear():
+    st = _two()
+    b = st.balls[0]
+    b.x, b.y, b.vy = st.players[0].x, C.COURT_B + 20, 1.0
+    step(st, [Input(), Input()])
+    assert st.players[0].score == 0
+    st.bricks = st.bricks[:1]
+    st.last_brick_t = 0.01
+    step(st, [Input(), Input()])
+    assert st.mode == "clear"
 
 
 def test_cpu_is_deterministic_and_chases_the_ball():

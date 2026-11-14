@@ -1,4 +1,4 @@
-"""Window, scenes, fixed-step loop, save file, and the small game-feel effects."""
+"""Window, scenes, fixed-step loop, save file, settings, and the small game-feel effects."""
 import datetime
 import json
 import os
@@ -15,27 +15,37 @@ from .sim.step import step, next_level
 from .render.theme import Theme, font_path
 from .render import draw
 from .io.cpu import Cpu
+from .audio import Audio, DEFAULTS, MUSIC_CHOICES, MUSIC_LABEL
 
 SAVE = os.path.expanduser("~/.local/share/arch-breaker-2/save.json")
-TITLE_ITEMS = ("Daily", "Endless", "Versus", "Quit")
+TITLE_ITEMS = ("Daily", "Endless", "Versus", "Settings", "Quit")
+PAUSE_ITEMS = ("Resume", "Restart", "Settings", "Main menu")
 VERSUS_ITEMS = ("2 Players", "vs CPU")
 DIFFS = ("easy", "normal", "hard")
-PAUSE_ITEMS = ("Resume", "Restart", "Main menu")
+SET_KEYS = ("music", "sfx", "music_vol", "shake", "shards", "back")
 
 
 class Fx:
-    def __init__(self):
+    def __init__(self, settings):
+        self.s = settings
         self.pause = 0
         self.shake = 0.0
         self.flash = 0.0
         self.parts = []
+        self.floats = []
         self.labels = {}
         self.rng = random.Random()
 
     def burst(self, x, y, col):
+        if not self.s["shards"]:
+            return
         for _ in range(8):
             a = self.rng.uniform(-1, 1)
             self.parts.append([x, y, a * 90, self.rng.uniform(-80, 20), 0.3, col])
+
+    def jolt(self, t=0.15):
+        if self.s["shake"]:
+            self.shake = t
 
     def tick(self, dt):
         self.shake = max(0.0, self.shake - dt)
@@ -46,14 +56,21 @@ class Fx:
             p[3] += 300 * dt
             p[4] -= dt
         self.parts = [p for p in self.parts if p[4] > 0]
+        for f in self.floats:
+            f[1] -= 18 * dt
+            f[3] -= dt
+        self.floats = [f for f in self.floats if f[3] > 0]
 
 
 def load_save():
+    data = {"daily": {}, "top": [], "streak": 0, "settings": {}}
     try:
         with open(SAVE) as f:
-            return json.load(f)
+            data.update(json.load(f))
     except (OSError, ValueError):
-        return {"daily": {}, "top": [], "streak": 0}
+        pass
+    data["settings"] = {**DEFAULTS, **data.get("settings", {})}
+    return data
 
 
 def write_save(data):
@@ -80,6 +97,7 @@ def read_inputs(keys, n):
 
 class App:
     def __init__(self):
+        pygame.mixer.pre_init(22050, -16, 1, 512)
         pygame.init()
         pygame.display.set_caption("Arch Breaker 2")
         info = pygame.display.Info()
@@ -89,27 +107,29 @@ class App:
         self.theme = Theme()
         self.fonts = draw.Fonts(font_path())
         self.save = load_save()
-        self.fx = Fx()
+        self.set = self.save["settings"]
+        self.audio = Audio(self.set)
+        self.fx = Fx(self.set)
         self.scene = "title"
-        self.sel = 0
+        self.back = "title"
+        self.sel = self.vsel = self.ssel = 0
         self.mode = "daily"
         self.st = None
         self.clear_t = 0.0
         self.cpu = None
         self.vs_cpu = False
         self.diff = 1
-        self.vsel = 0
         self.smoke = int(os.environ.get("AB2_SMOKE", "0"))
         if self.smoke:
-            self.start("endless", 123)
-            self.st.balls[0].held = False
             sc = os.environ.get("AB2_SCENE")
             if sc == "versus-play":
                 self.vs_cpu = True
                 self.start("versus", 123)
-                for b in self.st.balls:
-                    b.held = False
-            elif sc:
+            else:
+                self.start("endless", 123)
+            for b in self.st.balls:
+                b.held = False
+            if sc and sc != "versus-play":
                 self.scene = sc
 
     # scenes -----------------------------------------------------------
@@ -118,12 +138,13 @@ class App:
         if seed is None:
             seed = int(today()) if mode == "daily" else random.randrange(1, 10 ** 6)
         versus = mode == "versus"
-        self.st = new_game(seed, 2 if versus else 1)
+        self.st = new_game(seed, 2 if versus else 1, versus)
         self.scene = "play"
-        self.fx = Fx()
+        self.fx = Fx(self.set)
         self.cpu = Cpu(1, DIFFS[self.diff], seed) if versus and self.vs_cpu else None
         if self.cpu:
             self.fx.labels = {1: "CPU"}
+        self.audio.music()
 
     def record(self):
         p = self.st.players[0]
@@ -135,25 +156,56 @@ class App:
         s["streak"] = max(s.get("streak", 0), self.st.streak)
         write_save(s)
 
+    def adjust(self, key, d):
+        s = self.set
+        if key == "music":
+            i = MUSIC_CHOICES.index(s["music"])
+            s["music"] = MUSIC_CHOICES[(i + d) % len(MUSIC_CHOICES)]
+            if self.st and self.scene != "title":
+                self.audio.music()
+        elif key in ("sfx", "music_vol"):
+            s[key] = round(max(0.0, min(1.0, s[key] + 0.1 * d)), 1)
+        elif key in ("shake", "shards", "mute"):
+            s[key] = not s[key]
+        self.audio.apply()
+        write_save(self.save)
+
+    def menu_nav(self, k, n, attr):
+        if k in (pygame.K_UP, pygame.K_w):
+            setattr(self, attr, (getattr(self, attr) - 1) % n)
+        elif k in (pygame.K_DOWN, pygame.K_s):
+            setattr(self, attr, (getattr(self, attr) + 1) % n)
+
     def key(self, k):
-        if k == pygame.K_F11 or k == pygame.K_f and self.scene != "play":
+        if k == pygame.K_F11 or (k == pygame.K_f and self.scene != "play"):
             pygame.display.toggle_fullscreen()
             return
-        if self.scene == "title":
-            if k in (pygame.K_UP, pygame.K_w):
-                self.sel = (self.sel - 1) % len(TITLE_ITEMS)
-            elif k in (pygame.K_DOWN, pygame.K_s):
-                self.sel = (self.sel + 1) % len(TITLE_ITEMS)
-            elif k in (pygame.K_RETURN, pygame.K_SPACE):
-                if self.sel == 3:
+        if k == pygame.K_m:
+            self.adjust("mute", 0)
+        elif k == pygame.K_LEFTBRACKET:
+            self.adjust("sfx", -1)
+        elif k == pygame.K_RIGHTBRACKET:
+            self.adjust("sfx", 1)
+        elif k == pygame.K_MINUS:
+            self.adjust("music_vol", -1)
+        elif k == pygame.K_EQUALS:
+            self.adjust("music_vol", 1)
+        sc = self.scene
+        if sc == "title":
+            self.menu_nav(k, len(TITLE_ITEMS), "sel")
+            if k in (pygame.K_RETURN, pygame.K_SPACE):
+                pick = TITLE_ITEMS[self.sel]
+                if pick == "Quit":
                     self.running = False
-                elif self.sel == 2:
+                elif pick == "Versus":
                     self.scene, self.vsel = "versus", 0
+                elif pick == "Settings":
+                    self.scene, self.back, self.ssel = "settings", "title", 0
                 else:
-                    self.start(("daily", "endless")[self.sel])
+                    self.start(pick.lower())
             elif k == pygame.K_ESCAPE:
                 self.running = False
-        elif self.scene == "versus":
+        elif sc == "versus":
             if k in (pygame.K_UP, pygame.K_w, pygame.K_DOWN, pygame.K_s):
                 self.vsel = 1 - self.vsel
             elif k in (pygame.K_LEFT, pygame.K_a):
@@ -165,30 +217,43 @@ class App:
             elif k in (pygame.K_RETURN, pygame.K_SPACE):
                 self.vs_cpu = self.vsel == 1
                 self.start("versus")
-        elif self.scene == "play":
+        elif sc == "settings":
+            self.menu_nav(k, len(SET_KEYS), "ssel")
+            key = SET_KEYS[self.ssel]
+            if k in (pygame.K_LEFT, pygame.K_a) and key != "back":
+                self.adjust(key, -1)
+            elif k in (pygame.K_RIGHT, pygame.K_d) and key != "back":
+                self.adjust(key, 1)
+            elif k == pygame.K_ESCAPE or (k in (pygame.K_RETURN, pygame.K_SPACE) and key == "back"):
+                self.scene = self.back
+            elif k in (pygame.K_RETURN, pygame.K_SPACE) and key in ("shake", "shards"):
+                self.adjust(key, 1)
+        elif sc == "play":
             if k in (pygame.K_ESCAPE, pygame.K_p):
                 self.scene, self.sel = "pause", 0
-        elif self.scene == "pause":
-            if k in (pygame.K_UP, pygame.K_w):
-                self.sel = (self.sel - 1) % len(PAUSE_ITEMS)
-            elif k in (pygame.K_DOWN, pygame.K_s):
-                self.sel = (self.sel + 1) % len(PAUSE_ITEMS)
-            elif k == pygame.K_ESCAPE:
+        elif sc == "pause":
+            self.menu_nav(k, len(PAUSE_ITEMS), "sel")
+            if k == pygame.K_ESCAPE:
                 self.scene = "play"
             elif k == pygame.K_r:
                 self.start(self.mode, self.st.seed)
             elif k in (pygame.K_RETURN, pygame.K_SPACE):
-                if self.sel == 0:
+                pick = PAUSE_ITEMS[self.sel]
+                if pick == "Resume":
                     self.scene = "play"
-                elif self.sel == 1:
+                elif pick == "Restart":
                     self.start(self.mode, self.st.seed)
+                elif pick == "Settings":
+                    self.scene, self.back, self.ssel = "settings", "pause", 0
                 else:
                     self.scene, self.sel = "title", 0
-        elif self.scene == "over":
+                    self.audio.stop_music()
+        elif sc == "over":
             if k == pygame.K_r:
                 self.start(self.mode, self.st.seed)
             elif k in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_ESCAPE):
                 self.scene, self.sel = "title", 0
+                self.audio.stop_music()
 
     # simulation -------------------------------------------------------
     def tick(self):
@@ -202,16 +267,28 @@ class App:
             if self.cpu:
                 inputs[1] = self.cpu.input(self.st)
             ev = step(self.st, inputs)
+            th, fx, au = self.theme, self.fx, self.audio
             for e in ev:
-                if e[0] == "brick":
-                    self.fx.pause = 2
-                    self.fx.burst(e[1], e[2], self.theme.row(e[3]))
+                kind = e[0]
+                if kind == "brick":
+                    fx.pause = 2
+                    fx.burst(e[1], e[2], th.row(e[3]))
                     if e[4] >= 3:
-                        self.fx.shake = 0.15
-                elif e[0] == "paddle" and e[1]:
-                    self.fx.flash = 0.12
-                elif e[0] == "lose":
-                    self.fx.shake = 0.15
+                        fx.jolt()
+                    au.play("brick", e[4])
+                elif kind == "paddle":
+                    if e[1]:
+                        fx.flash = 0.12
+                    au.play("edge" if e[1] else "paddle")
+                elif kind == "lose":
+                    fx.jolt()
+                    au.play("lose")
+                elif kind == "penalty":
+                    fx.jolt(0.1)
+                    fx.floats.append([e[2], C.COURT_B - 24, f"-{C.PENALTY}", 1.0, th.players[e[1]]])
+                    au.play("penalty")
+                elif kind in ("wall", "drop", "shield", "clear"):
+                    au.play(kind)
             if self.st.mode == "clear" and self.mode != "versus":
                 self.scene, self.clear_t = "clear", 1.2
             elif self.st.mode in ("clear", "over"):
@@ -225,40 +302,47 @@ class App:
                 self.scene = "play"
 
     # drawing ----------------------------------------------------------
+    def settings_items(self):
+        s = self.set
+        onoff = lambda b: "On" if b else "Off"
+        return (f"Music   < {MUSIC_LABEL[s['music']]} >", f"Effects volume   < {int(s['sfx'] * 10)} >",
+                f"Music volume   < {int(s['music_vol'] * 10)} >", f"Screen shake   {onoff(s['shake'])}",
+                f"Brick shards   {onoff(s['shards'])}", "Back")
+
     def render(self):
         c, th, f = self.canvas, self.theme, self.fonts
-        if self.scene == "title":
+        sc = self.scene
+        if sc in ("title", "versus") or (sc == "settings" and self.back == "title"):
             draw.court(c, th)
+        else:
+            draw.play(c, self.st, th, f, self.fx)
+        if sc == "title":
             best = self.save["daily"].get(today(), 0)
             top = self.save["top"][0][0] if self.save["top"] else 0
             sub = [f"today's best {best}", f"endless best {top}", f"best streak {self.save.get('streak', 0)}", f"theme {th.name}"]
             draw.menu(c, th, f, "ARCH BREAKER 2", TITLE_ITEMS, self.sel, "ENTER  Select     F11  Fullscreen", sub)
-        elif self.scene == "versus":
-            draw.court(c, th)
-            sub = ["P1   A D   W launches", "P2   \u2190 \u2192   \u2191 launches", f"CPU   <  {DIFFS[self.diff]}  >"]
-            draw.menu(c, th, f, "VERSUS", VERSUS_ITEMS, self.vsel, "ENTER  Start     \u2190 \u2192  Difficulty     ESC  Back", sub)
-        else:
-            draw.play(c, self.st, th, f, self.fx)
-            if self.scene == "pause":
-                draw.menu(c, th, f, "PAUSED", PAUSE_ITEMS, self.sel, "ESC  Resume     R  Restart")
-            elif self.scene == "clear":
-                r = draw.plate(c, pygame.Rect(C.W // 2 - 70, C.H // 2 - 14, 140, 28), th)
-                draw.text(c, f.l, f"LEVEL {self.st.level} CLEAR", r.centerx, r.centery, th.fg, "center")
-            elif self.scene == "over" and self.mode == "versus":
-                ps = self.st.players
-                alive = [p for p in ps if p.alive]
-                if len(alive) == 1 and self.st.bricks:
-                    title = f"P{alive[0].owner + 1} WINS"
-                elif ps[0].score != ps[1].score:
-                    title = f"P{1 if ps[0].score > ps[1].score else 2} WINS"
-                else:
-                    title = "DRAW"
-                draw.menu(c, th, f, title, (), 0, "SPACE  Menu     R  Rematch",
-                          [f"P1 {ps[0].score}     P2 {ps[1].score}", f"seed {self.st.seed}"])
-            elif self.scene == "over":
-                p = self.st.players[0]
-                draw.menu(c, th, f, "GAME OVER", (), 0, "SPACE  Menu     R  Retry this seed",
-                          [f"score {p.score}", f"level {self.st.level}", f"seed {self.st.seed}"])
+        elif sc == "versus":
+            sub = ["P1   A D   W launches", "P2   ← →   ↑ launches", f"CPU   <  {DIFFS[self.diff]}  >",
+                   "a ball through your side: -25"]
+            draw.menu(c, th, f, "VERSUS", VERSUS_ITEMS, self.vsel, "ENTER  Start     ← →  Difficulty     ESC  Back", sub)
+        elif sc == "settings":
+            mute = "   (muted: M)" if self.set["mute"] else ""
+            draw.menu(c, th, f, "SETTINGS", self.settings_items(), self.ssel, "← →  Change     ESC  Back",
+                      ["music by Zodik, CC-BY 3.0" + mute])
+        elif sc == "pause":
+            draw.menu(c, th, f, "PAUSED", PAUSE_ITEMS, self.sel, "ESC  Resume     R  Restart")
+        elif sc == "clear":
+            r = draw.plate(c, pygame.Rect(C.W // 2 - 70, C.H // 2 - 14, 140, 28), th)
+            draw.text(c, f.l, f"LEVEL {self.st.level} CLEAR", r.centerx, r.centery, th.fg, "center")
+        elif sc == "over" and self.mode == "versus":
+            ps = self.st.players
+            title = "DRAW" if ps[0].score == ps[1].score else f"P{1 if ps[0].score > ps[1].score else 2} WINS"
+            draw.menu(c, th, f, title, (), 0, "SPACE  Menu     R  Rematch",
+                      [f"P1 {ps[0].score}     P2 {ps[1].score}", f"seed {self.st.seed}"])
+        elif sc == "over":
+            p = self.st.players[0]
+            draw.menu(c, th, f, "GAME OVER", (), 0, "SPACE  Menu     R  Retry this seed",
+                      [f"score {p.score}", f"level {self.st.level}", f"seed {self.st.seed}"])
         ww, wh = self.win.get_size()
         s = max(1, min(ww // C.W, wh // C.H))
         ox, oy = (ww - C.W * s) // 2, (wh - C.H * s) // 2
@@ -285,8 +369,7 @@ class App:
             while acc >= C.TICK:
                 self.tick()
                 acc -= C.TICK
-            if self.theme.poll():
-                pass
+            self.theme.poll()
             self.render()
             clock.tick(120)
             frames += 1
@@ -294,13 +377,9 @@ class App:
                 if os.environ.get("AB2_SHOT"):
                     pygame.image.save(self.canvas, os.environ["AB2_SHOT"])
                 self.running = False
+        write_save(self.save)
         pygame.quit()
 
 
 def main():
-    try:
-        import pygame  # noqa: F401
-    except ImportError:
-        print("Arch Breaker 2 needs Python 3 and pygame. On Omarchy run:\n  sudo pacman -S --needed python python-pygame")
-        raise SystemExit(1)
     App().run()

@@ -82,17 +82,19 @@ class State:
     lost_this_level: bool = False
     streak: int = 0
     mode: str = "play"    # play | clear | over
+    versus: bool = False
+    respawn: dict = field(default_factory=dict)
     events: list = field(default_factory=list)
 
 
-def new_game(seed: int, n_players: int = 1) -> State:
+def new_game(seed: int, n_players: int = 1, versus: bool = False) -> State:
     court_w = C.COURT_R - C.COURT_L
     players = []
     for i in range(n_players):
         zl = C.COURT_L + court_w * i / n_players
         zr = C.COURT_L + court_w * (i + 1) / n_players
         players.append(Paddle(i, (zl + zr) / 2.0, 0.0, float(C.PADDLE_W), zl, zr, C.LIVES))
-    st = State(seed=seed, level=1, rng=Rng(seed), players=players)
+    st = State(seed=seed, level=1, rng=Rng(seed), players=players, versus=versus)
     start_level(st)
     return st
 
@@ -102,6 +104,7 @@ def start_level(st: State) -> None:
     st.bricks = generate(st.seed, st.level)
     st.drops = []
     st.balls = []
+    st.respawn = {}
     st.slow_t = 0.0
     st.last_brick_t = 0.0
     st.creep_hits = 0

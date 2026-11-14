@@ -136,6 +136,14 @@ def _zone_at(st: State, x):
     return None
 
 
+def _penalty(st: State, b: Ball, z, ev):
+    st.balls.remove(b)
+    z.score = max(0, z.score - C.PENALTY)
+    ev.append(("penalty", z.owner, b.x))
+    if z.owner not in st.respawn and not any(o.owner == z.owner for o in st.balls):
+        st.respawn[z.owner] = C.RESPAWN_TICKS
+
+
 def _spawn_for(st: State, p):
     st.balls.append(Ball(p.x, C.PADDLE_Y - C.BALL_R - 1, 0.0, -1.0, C.BALL_BASE, p.owner))
 
@@ -185,14 +193,15 @@ def _balls(st: State, ev, dt):
                         break
             if b.y - C.BALL_R > C.COURT_B:
                 p = st.players[b.owner]
-                z = _zone_at(st, b.x)
-                if z is not None and not z.alive:   # a knocked-out player's zone is a wall
-                    b.y, b.vy = C.COURT_B - C.BALL_R, -abs(b.vy)
-                    ev.append(("wall",))
-                elif p.shield > 0:
+                if st.versus:
+                    p = _zone_at(st, b.x) or p   # versus: your side, your problem
+                if p.shield > 0:
                     p.shield -= 1
                     b.y, b.vy = C.COURT_B - C.BALL_R, -abs(b.vy)
                     ev.append(("shield", p.owner))
+                elif st.versus:
+                    _penalty(st, b, p, ev)
+                    break
                 else:
                     _lose_ball(st, b, ev)
                     break
@@ -256,6 +265,11 @@ def step(st: State, inputs) -> list:
     if st.slow_t > 0:
         st.slow_t -= dt
     _paddles(st, inputs, dt)
+    for owner in list(st.respawn):
+        st.respawn[owner] -= 1
+        if st.respawn[owner] <= 0:
+            del st.respawn[owner]
+            _spawn_for(st, st.players[owner])
     _launch(st, inputs)
     _balls(st, ev, dt)
     _drops(st, ev, dt)

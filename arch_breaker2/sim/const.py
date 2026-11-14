@@ -38,6 +38,8 @@ HOT_STREAK = 30      # paddle hits without a loss: drops lean risky
 CREEP_LEVEL = 8
 CREEP_HITS = 12
 CLEAR_BONUS = 100
+PENALTY = 25          # versus: a ball through your side
+RESPAWN_TICKS = 60
 
 
 def speed_cap(level: int) -> float:

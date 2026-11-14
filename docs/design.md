@@ -153,3 +153,14 @@ A CPU is just another input source. It watches the ball that will reach its zone
 ## What's not in this version
 
 No online play, no accounts, no network code, no local 4-player, no sticky power-up, no unlockables.
+
+## Change after the first playtest (2026-11-14)
+
+Poach as first built had lives *and* points, and the owner decided who paid for a dropped ball. In play, the points stopped mattering once someone was close to being knocked out, and it wasn't obvious whose ball was whose. Ric's call, which is the better rule:
+
+- **No lives in Versus.** Nobody is knocked out.
+- **Any ball through your side costs you 25 points**, whoever owned it. It comes back on your paddle a second later. A floating **-25** shows where it dropped. Scores never go below zero.
+- Ownership (ball color) still decides who scores the bricks. Catching a ball makes it yours.
+- The match ends when the wall is clear. Highest score wins.
+
+This is simpler to read, and aiming becomes offense: put your ball on the other side and they have to deal with it.

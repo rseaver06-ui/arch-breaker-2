@@ -52,8 +52,6 @@ def play(c, st, th, f, fx):
                 pygame.draw.line(c, th.muted, (p.zone_l, y), (p.zone_l, y + 3))
     for p in st.players:
         if not p.alive:
-            if len(st.players) > 1:
-                pygame.draw.line(c, th.muted, (p.zone_l + 2, C.COURT_B - 1), (p.zone_r - 2, C.COURT_B - 1), 3)
             continue
         col = th.fg_bright if fx.flash > 0 else th.players[p.owner]
         pygame.draw.rect(c, col, (p.x - p.half, C.PADDLE_Y, p.w, C.PADDLE_H), border_radius=3)
@@ -63,6 +61,8 @@ def play(c, st, th, f, fx):
         pygame.draw.circle(c, th.players[b.owner], (b.x, b.y), C.BALL_R)
     for px, py, _, _, life, col in fx.parts:
         pygame.draw.rect(c, col, (px, py, 2, 2))
+    for fx_, fy, label, life, col in fx.floats:
+        text(c, f.m, label, fx_, fy, col, "center")
     hud(c, st, th, f, fx.labels)
 
 
@@ -127,12 +127,9 @@ def hud_versus(c, st, th, f, labels):
         x = C.COURT_R if right else C.COURT_L
         anchor = "topright" if right else "topleft"
         tag = labels.get(p.owner, f"P{p.owner + 1}")
-        text(c, f.m, f"{tag} {p.score}" if not right else f"{p.score} {tag}", x, 8, col if p.alive else th.muted, anchor)
-        for k in range(p.lives):
-            dx = C.COURT_R - 4 - k * 10 if right else C.COURT_L + 4 + k * 10
-            pygame.draw.circle(c, col, (dx, 28), 3)
-        if not p.alive:
-            text(c, f.s, "OUT", x, 24, th.muted, anchor)
+        text(c, f.m, f"{tag} {p.score}" if not right else f"{p.score} {tag}", x, 12, col, anchor)
+        if p.shield:
+            text(c, f.s, "shield " * p.shield, x, 26, col, anchor)
     text(c, f.s, f"{len(st.bricks)} left", C.W // 2, 12, th.fg_dark, "midtop")
     if len(st.bricks) == 1 and st.last_brick_t > 0:
         text(c, f.m, f"{st.last_brick_t:0.1f}", C.W // 2, C.COURT_B - 40, th.fg_dark, "center")
