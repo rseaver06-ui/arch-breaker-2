@@ -129,6 +129,13 @@ def _ball_bricks(st: State, b: Ball, ev):
         return
 
 
+def _zone_at(st: State, x):
+    for p in st.players:
+        if p.zone_l <= x <= p.zone_r:
+            return p
+    return None
+
+
 def _spawn_for(st: State, p):
     st.balls.append(Ball(p.x, C.PADDLE_Y - C.BALL_R - 1, 0.0, -1.0, C.BALL_BASE, p.owner))
 
@@ -178,7 +185,11 @@ def _balls(st: State, ev, dt):
                         break
             if b.y - C.BALL_R > C.COURT_B:
                 p = st.players[b.owner]
-                if p.shield > 0:
+                z = _zone_at(st, b.x)
+                if z is not None and not z.alive:   # a knocked-out player's zone is a wall
+                    b.y, b.vy = C.COURT_B - C.BALL_R, -abs(b.vy)
+                    ev.append(("wall",))
+                elif p.shield > 0:
                     p.shield -= 1
                     b.y, b.vy = C.COURT_B - C.BALL_R, -abs(b.vy)
                     ev.append(("shield", p.owner))
@@ -262,7 +273,7 @@ def step(st: State, inputs) -> list:
             if p.alive:
                 p.score += C.CLEAR_BONUS * st.level
         ev.append(("clear",))
-    elif st.mode == "play" and not any(p.alive for p in st.players):
+    elif st.mode == "play" and sum(p.alive for p in st.players) <= (1 if len(st.players) > 1 else 0):
         st.mode = "over"
         ev.append(("over",))
     return ev

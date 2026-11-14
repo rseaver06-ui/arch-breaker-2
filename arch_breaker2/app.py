@@ -14,9 +14,12 @@ from .sim.state import Input, new_game
 from .sim.step import step, next_level
 from .render.theme import Theme, font_path
 from .render import draw
+from .io.cpu import Cpu
 
 SAVE = os.path.expanduser("~/.local/share/arch-breaker-2/save.json")
-TITLE_ITEMS = ("Daily", "Endless", "Quit")
+TITLE_ITEMS = ("Daily", "Endless", "Versus", "Quit")
+VERSUS_ITEMS = ("2 Players", "vs CPU")
+DIFFS = ("easy", "normal", "hard")
 PAUSE_ITEMS = ("Resume", "Restart", "Main menu")
 
 
@@ -26,6 +29,7 @@ class Fx:
         self.shake = 0.0
         self.flash = 0.0
         self.parts = []
+        self.labels = {}
         self.rng = random.Random()
 
     def burst(self, x, y, col):
@@ -66,9 +70,12 @@ def today():
 
 
 def read_inputs(keys, n):
-    p1 = Input(keys[pygame.K_LEFT] or keys[pygame.K_a], keys[pygame.K_RIGHT] or keys[pygame.K_d],
-               keys[pygame.K_SPACE] or keys[pygame.K_w] or keys[pygame.K_UP])
-    return [p1] + [Input() for _ in range(n - 1)]
+    if n == 1:
+        return [Input(keys[pygame.K_LEFT] or keys[pygame.K_a], keys[pygame.K_RIGHT] or keys[pygame.K_d],
+                      keys[pygame.K_SPACE] or keys[pygame.K_w] or keys[pygame.K_UP])]
+    p1 = Input(keys[pygame.K_a], keys[pygame.K_d], keys[pygame.K_w])
+    p2 = Input(keys[pygame.K_LEFT], keys[pygame.K_RIGHT], keys[pygame.K_UP])
+    return [p1, p2] + [Input() for _ in range(n - 2)]
 
 
 class App:
@@ -88,12 +95,21 @@ class App:
         self.mode = "daily"
         self.st = None
         self.clear_t = 0.0
+        self.cpu = None
+        self.vs_cpu = False
+        self.diff = 1
+        self.vsel = 0
         self.smoke = int(os.environ.get("AB2_SMOKE", "0"))
         if self.smoke:
             self.start("endless", 123)
             self.st.balls[0].held = False
             sc = os.environ.get("AB2_SCENE")
-            if sc:
+            if sc == "versus-play":
+                self.vs_cpu = True
+                self.start("versus", 123)
+                for b in self.st.balls:
+                    b.held = False
+            elif sc:
                 self.scene = sc
 
     # scenes -----------------------------------------------------------
@@ -101,9 +117,13 @@ class App:
         self.mode = mode
         if seed is None:
             seed = int(today()) if mode == "daily" else random.randrange(1, 10 ** 6)
-        self.st = new_game(seed, 1)
+        versus = mode == "versus"
+        self.st = new_game(seed, 2 if versus else 1)
         self.scene = "play"
         self.fx = Fx()
+        self.cpu = Cpu(1, DIFFS[self.diff], seed) if versus and self.vs_cpu else None
+        if self.cpu:
+            self.fx.labels = {1: "CPU"}
 
     def record(self):
         p = self.st.players[0]
@@ -125,12 +145,26 @@ class App:
             elif k in (pygame.K_DOWN, pygame.K_s):
                 self.sel = (self.sel + 1) % len(TITLE_ITEMS)
             elif k in (pygame.K_RETURN, pygame.K_SPACE):
-                if self.sel == 2:
+                if self.sel == 3:
                     self.running = False
+                elif self.sel == 2:
+                    self.scene, self.vsel = "versus", 0
                 else:
                     self.start(("daily", "endless")[self.sel])
             elif k == pygame.K_ESCAPE:
                 self.running = False
+        elif self.scene == "versus":
+            if k in (pygame.K_UP, pygame.K_w, pygame.K_DOWN, pygame.K_s):
+                self.vsel = 1 - self.vsel
+            elif k in (pygame.K_LEFT, pygame.K_a):
+                self.diff = (self.diff - 1) % 3
+            elif k in (pygame.K_RIGHT, pygame.K_d):
+                self.diff = (self.diff + 1) % 3
+            elif k == pygame.K_ESCAPE:
+                self.scene = "title"
+            elif k in (pygame.K_RETURN, pygame.K_SPACE):
+                self.vs_cpu = self.vsel == 1
+                self.start("versus")
         elif self.scene == "play":
             if k in (pygame.K_ESCAPE, pygame.K_p):
                 self.scene, self.sel = "pause", 0
@@ -164,7 +198,10 @@ class App:
             if self.fx.pause > 0:
                 self.fx.pause -= 1
                 return
-            ev = step(self.st, read_inputs(pygame.key.get_pressed(), len(self.st.players)))
+            inputs = read_inputs(pygame.key.get_pressed(), len(self.st.players))
+            if self.cpu:
+                inputs[1] = self.cpu.input(self.st)
+            ev = step(self.st, inputs)
             for e in ev:
                 if e[0] == "brick":
                     self.fx.pause = 2
@@ -175,10 +212,11 @@ class App:
                     self.fx.flash = 0.12
                 elif e[0] == "lose":
                     self.fx.shake = 0.15
-            if self.st.mode == "clear":
+            if self.st.mode == "clear" and self.mode != "versus":
                 self.scene, self.clear_t = "clear", 1.2
-            elif self.st.mode == "over":
-                self.record()
+            elif self.st.mode in ("clear", "over"):
+                if self.mode != "versus":
+                    self.record()
                 self.scene = "over"
         elif self.scene == "clear":
             self.clear_t -= dt
@@ -195,6 +233,10 @@ class App:
             top = self.save["top"][0][0] if self.save["top"] else 0
             sub = [f"today's best {best}", f"endless best {top}", f"best streak {self.save.get('streak', 0)}", f"theme {th.name}"]
             draw.menu(c, th, f, "ARCH BREAKER 2", TITLE_ITEMS, self.sel, "ENTER  Select     F11  Fullscreen", sub)
+        elif self.scene == "versus":
+            draw.court(c, th)
+            sub = ["P1   A D   W launches", "P2   \u2190 \u2192   \u2191 launches", f"CPU   <  {DIFFS[self.diff]}  >"]
+            draw.menu(c, th, f, "VERSUS", VERSUS_ITEMS, self.vsel, "ENTER  Start     \u2190 \u2192  Difficulty     ESC  Back", sub)
         else:
             draw.play(c, self.st, th, f, self.fx)
             if self.scene == "pause":
@@ -202,6 +244,17 @@ class App:
             elif self.scene == "clear":
                 r = draw.plate(c, pygame.Rect(C.W // 2 - 70, C.H // 2 - 14, 140, 28), th)
                 draw.text(c, f.l, f"LEVEL {self.st.level} CLEAR", r.centerx, r.centery, th.fg, "center")
+            elif self.scene == "over" and self.mode == "versus":
+                ps = self.st.players
+                alive = [p for p in ps if p.alive]
+                if len(alive) == 1 and self.st.bricks:
+                    title = f"P{alive[0].owner + 1} WINS"
+                elif ps[0].score != ps[1].score:
+                    title = f"P{1 if ps[0].score > ps[1].score else 2} WINS"
+                else:
+                    title = "DRAW"
+                draw.menu(c, th, f, title, (), 0, "SPACE  Menu     R  Rematch",
+                          [f"P1 {ps[0].score}     P2 {ps[1].score}", f"seed {self.st.seed}"])
             elif self.scene == "over":
                 p = self.st.players[0]
                 draw.menu(c, th, f, "GAME OVER", (), 0, "SPACE  Menu     R  Retry this seed",

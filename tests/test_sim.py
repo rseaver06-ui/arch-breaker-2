@@ -141,3 +141,62 @@ def test_theme_reloads_when_file_changes(tmp_path, monkeypatch):
     os.utime(f, (time.time() + 5, time.time() + 5))
     th.last_check = 0
     assert th.poll() and th.accent == (0, 255, 0) and not th.dark
+
+
+def _two():
+    st = new_game(11, 2)
+    for b in st.balls:
+        b.held = False
+    return st
+
+
+def test_poach_catching_a_ball_makes_it_yours():
+    st = _two()
+    p2 = st.players[1]
+    b = st.balls[0]
+    assert b.owner == 0
+    b.x, b.y, b.vx, b.vy = p2.x, C.PADDLE_Y - C.BALL_R - 1, 0.0, 1.0
+    step(st, [Input(), Input()])
+    assert b.owner == 1 and b.vy < 0
+
+
+def test_lost_ball_charges_its_owner_wherever_it_falls():
+    st = _two()
+    b = st.balls[0]
+    b.x, b.y, b.vy = st.players[1].x, C.COURT_B + 20, 1.0
+    step(st, [Input(), Input()])
+    assert st.players[0].lives == C.LIVES - 1 and st.players[1].lives == C.LIVES
+
+
+def test_knocked_out_zone_is_a_wall():
+    st = _two()
+    st.players[1].alive = False
+    b = st.balls[0]
+    b.x, b.y, b.vy = st.players[1].x, C.COURT_B + 20, 1.0
+    ev = step(st, [Input(), Input()])
+    assert b.vy < 0 and st.players[0].lives == C.LIVES and ("wall",) in ev
+
+
+def test_match_ends_when_one_player_is_left():
+    st = _two()
+    st.players[1].lives = 1
+    b = st.balls[1]
+    b.x, b.y, b.vy = st.players[1].x, C.COURT_B + 20, 1.0
+    step(st, [Input(), Input()])
+    assert not st.players[1].alive and st.mode == "over"
+
+
+def test_cpu_is_deterministic_and_chases_the_ball():
+    from arch_breaker2.io.cpu import Cpu
+    def play():
+        st = _two()
+        cpus = [Cpu(0, "hard", 11), Cpu(1, "normal", 11)]
+        xs = []
+        for _ in range(900):
+            step(st, [c.input(st) for c in cpus])
+            xs.append((st.players[0].x, st.players[1].x))
+        return st, xs
+    a, xa = play()
+    b, xb = play()
+    assert xa == xb and a.players[0].score == b.players[0].score
+    assert a.paddle_hits > 3   # the CPUs actually return the ball

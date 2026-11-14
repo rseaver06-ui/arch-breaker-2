@@ -46,8 +46,14 @@ def play(c, st, th, f, fx):
         r.center = (d.x, d.y)
         pygame.draw.rect(c, th.accent, r, border_radius=2)
         text(c, f.s, LETTER[d.kind], r.centerx + 1, r.centery, th.bg, "center")
+    if len(st.players) > 1:
+        for p in st.players[1:]:
+            for y in range(C.PADDLE_Y - 12, C.COURT_B, 6):
+                pygame.draw.line(c, th.muted, (p.zone_l, y), (p.zone_l, y + 3))
     for p in st.players:
         if not p.alive:
+            if len(st.players) > 1:
+                pygame.draw.line(c, th.muted, (p.zone_l + 2, C.COURT_B - 1), (p.zone_r - 2, C.COURT_B - 1), 3)
             continue
         col = th.fg_bright if fx.flash > 0 else th.players[p.owner]
         pygame.draw.rect(c, col, (p.x - p.half, C.PADDLE_Y, p.w, C.PADDLE_H), border_radius=3)
@@ -57,10 +63,12 @@ def play(c, st, th, f, fx):
         pygame.draw.circle(c, th.players[b.owner], (b.x, b.y), C.BALL_R)
     for px, py, _, _, life, col in fx.parts:
         pygame.draw.rect(c, col, (px, py, 2, 2))
-    hud(c, st, th, f)
+    hud(c, st, th, f, fx.labels)
 
 
-def hud(c, st, th, f):
+def hud(c, st, th, f, labels=None):
+    if len(st.players) > 1:
+        return hud_versus(c, st, th, f, labels or {})
     p = st.players[0]
     text(c, f.m, f"SCORE {p.score}", C.COURT_L, 12, th.fg)
     text(c, f.m, f"LEVEL {st.level}", C.W // 2, 12, th.fg_dark, "midtop")
@@ -91,7 +99,7 @@ def menu(c, th, f, title, items, sel, hint, sub=None):
     if sub:
         rows.insert(1, f.s.get_height() * len(sub) + 6)
     h = sum(rows) + 16 + f.s.get_height() + 10
-    w = 220
+    w = max(220, f.s.size(hint)[0] + 28)
     box = pygame.Rect(0, 0, w, h)
     box.center = (C.W // 2, C.H // 2)
     plate(c, box, th)
@@ -110,3 +118,21 @@ def menu(c, th, f, title, items, sel, hint, sub=None):
         text(c, f.m, it, box.left + 18, y + rh // 2, th.bg if i == sel else th.fg, "midleft")
         y += rh
     text(c, f.s, hint, box.centerx, box.bottom - 8, th.fg_dark, "midbottom")
+
+
+def hud_versus(c, st, th, f, labels):
+    for i, p in enumerate(st.players[:2]):
+        col = th.players[p.owner]
+        right = i == 1
+        x = C.COURT_R if right else C.COURT_L
+        anchor = "topright" if right else "topleft"
+        tag = labels.get(p.owner, f"P{p.owner + 1}")
+        text(c, f.m, f"{tag} {p.score}" if not right else f"{p.score} {tag}", x, 8, col if p.alive else th.muted, anchor)
+        for k in range(p.lives):
+            dx = C.COURT_R - 4 - k * 10 if right else C.COURT_L + 4 + k * 10
+            pygame.draw.circle(c, col, (dx, 28), 3)
+        if not p.alive:
+            text(c, f.s, "OUT", x, 24, th.muted, anchor)
+    text(c, f.s, f"{len(st.bricks)} left", C.W // 2, 12, th.fg_dark, "midtop")
+    if len(st.bricks) == 1 and st.last_brick_t > 0:
+        text(c, f.m, f"{st.last_brick_t:0.1f}", C.W // 2, C.COURT_B - 40, th.fg_dark, "center")
