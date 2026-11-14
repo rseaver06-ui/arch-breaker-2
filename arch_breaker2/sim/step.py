@@ -151,14 +151,15 @@ def _spawn_for(st: State, p):
 def _lose_ball(st: State, b: Ball, ev):
     p = st.players[b.owner]
     st.balls.remove(b)
+    if any(o.owner == p.owner for o in st.balls):   # other balls still up: no life lost
+        ev.append(("ballout", p.owner))
+        return
     p.lives -= 1
     st.last_loss_tick = st.tick
     st.hits_since_loss = 0
     st.lost_this_level = True
     st.streak = 0
     ev.append(("lose", p.owner))
-    if any(o.owner == p.owner for o in st.balls):
-        return
     if p.lives > 0:
         _spawn_for(st, p)
         st.balls[-1].speed = C.BALL_BASE + (b.speed - C.BALL_BASE) / 2.0

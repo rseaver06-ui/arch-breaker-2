@@ -209,3 +209,18 @@ def test_cpu_is_deterministic_and_chases_the_ball():
     b, xb = play()
     assert xa == xb and a.players[0].score == b.players[0].score
     assert a.paddle_hits > 3   # the CPUs actually return the ball
+
+
+def test_only_the_last_ball_costs_a_life():
+    from arch_breaker2.sim.state import Ball
+    st = new_game(5)
+    step(st, [GO])
+    st.balls.append(Ball(300.0, 200.0, 0.0, -1.0, 200.0, 0, False))
+    b = st.balls[0]
+    b.x, b.y, b.vy = 300.0, C.COURT_B + 20, 1.0
+    ev = step(st, [Input()])
+    assert ("ballout", 0) in ev and st.players[0].lives == C.LIVES and len(st.balls) == 1
+    b = st.balls[0]
+    b.x, b.y, b.vy = 300.0, C.COURT_B + 20, 1.0
+    ev = step(st, [Input()])
+    assert ("lose", 0) in ev and st.players[0].lives == C.LIVES - 1

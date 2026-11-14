@@ -102,7 +102,9 @@ class App:
         pygame.display.set_caption("Arch Breaker 2")
         info = pygame.display.Info()
         scale = max(1, min((info.current_w - 80) // C.W, (info.current_h - 80) // C.H, 3))
-        self.win = pygame.display.set_mode((C.W * scale, C.H * scale), pygame.RESIZABLE)
+        self.windowed = (C.W * scale, C.H * scale)
+        self.full = False
+        self.win = pygame.display.set_mode(self.windowed, pygame.RESIZABLE)
         self.canvas = pygame.Surface((C.W, C.H))
         self.theme = Theme()
         self.fonts = draw.Fonts(font_path())
@@ -131,6 +133,15 @@ class App:
                 b.held = False
             if sc and sc != "versus-play":
                 self.scene = sc
+
+    def fullscreen(self, on):
+        """Real fullscreen at the monitor's own size, so pixels stay whole and text stays crisp."""
+        if on:
+            self.windowed = self.win.get_size()
+            self.win = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        else:
+            self.win = pygame.display.set_mode(self.windowed, pygame.RESIZABLE)
+        self.full = on
 
     # scenes -----------------------------------------------------------
     def start(self, mode, seed=None):
@@ -178,7 +189,7 @@ class App:
 
     def key(self, k):
         if k == pygame.K_F11 or (k == pygame.K_f and self.scene != "play"):
-            pygame.display.toggle_fullscreen()
+            self.fullscreen(not self.full)
             return
         if k == pygame.K_m:
             self.adjust("mute", 0)
@@ -287,6 +298,8 @@ class App:
                     fx.jolt(0.1)
                     fx.floats.append([e[2], C.COURT_B - 24, f"-{C.PENALTY}", 1.0, th.players[e[1]]])
                     au.play("penalty")
+                elif kind == "ballout":
+                    au.play("wall")
                 elif kind in ("wall", "drop", "shield", "clear"):
                     au.play(kind)
             if self.st.mode == "clear" and self.mode != "versus":
