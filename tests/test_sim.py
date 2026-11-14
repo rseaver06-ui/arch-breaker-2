@@ -1,0 +1,129 @@
+import copy
+from math import sqrt
+
+from arch_breaker2.sim import const as C
+from arch_breaker2.sim.levelgen import generate
+from arch_breaker2.sim.rng import Rng
+from arch_breaker2.sim.state import Input, new_game
+from arch_breaker2.sim.step import step, next_level
+
+L, R, GO = Input(left=True), Input(right=True), Input(launch=True)
+
+
+def run(st, inputs_fn, ticks):
+    evs = []
+    for t in range(ticks):
+        evs += step(st, [inputs_fn(t)])
+    return evs
+
+
+def test_same_seed_same_wall():
+    a, b = generate(42, 3), generate(42, 3)
+    assert [(x.col, x.row, x.hp, x.drop) for x in a] == [(x.col, x.row, x.hp, x.drop) for x in b]
+    assert generate(42, 3) != generate(43, 3) or generate(42, 4) != generate(42, 3)
+
+
+def test_walls_are_mirrored_and_get_harder():
+    for lvl in (1, 4, 7, 12):
+        bricks = generate(7, lvl)
+        cells = {(b.col, b.row, b.hp) for b in bricks}
+        assert all((C.COLS - 1 - c, r, hp) in cells for c, r, hp in cells)
+        assert len(bricks) >= 8
+    assert max(b.hp for b in generate(7, 1)) == 1
+    assert len(generate(7, 10)) > len(generate(7, 1))
+
+
+def test_replay_is_identical():
+    rng = Rng(5)
+    script = [[L, R, GO, Input()][rng.below(4)] for _ in range(1800)]
+    a, b = new_game(99), new_game(99)
+    for inp in script:
+        step(a, [inp])
+        step(b, [inp])
+    assert a.tick == b.tick and a.players[0].score == b.players[0].score
+    assert [(x.x, x.y, x.vx, x.vy) for x in a.balls] == [(x.x, x.y, x.vx, x.vy) for x in b.balls]
+    assert len(a.bricks) == len(b.bricks)
+
+
+def test_launch_and_paddle_bounce_limits():
+    st = new_game(1)
+    step(st, [GO])
+    b = st.balls[0]
+    assert not b.held and b.vy < 0
+    # drive the ball into the paddle from the far edge and check the angle stays legal
+    p = st.players[0]
+    b.x, b.y, b.vx, b.vy = p.x + p.half - 1, C.PADDLE_Y - C.BALL_R - 1, 0.0, 1.0
+    step(st, [Input()])
+    assert b.vy < 0 and abs(b.vy) >= C.MIN_VY - 1e-9
+    assert abs(sqrt(b.vx ** 2 + b.vy ** 2) - 1.0) < 1e-9
+    assert b.vx > 0.5  # edge hit sends it out steeply
+
+
+def test_breaking_bricks_scores_and_chains():
+    st = new_game(3)
+    step(st, [GO])
+    b = st.balls[0]
+    br = st.bricks[-1]
+    n = len(st.bricks)
+    b.x, b.y, b.vx, b.vy = br.x + C.BRICK_W / 2, br.y + C.BRICK_H + C.BALL_R + 1, 0.0, -1.0
+    ev = step(st, [Input()])
+    assert len(st.bricks) == n - 1 or br.hp < br.hp0
+    assert st.players[0].score > 0 or br.hp < br.hp0
+    if len(st.bricks) == n - 1:
+        assert any(e[0] == "brick" for e in ev) and b.chain == 1 and b.vy > 0
+
+
+def test_losing_balls_costs_lives_then_game_over():
+    st = new_game(2)
+    for life in (2, 1, 0):
+        step(st, [GO])
+        b = st.balls[0]
+        b.y, b.vy, b.vx = C.COURT_B + 20, 1.0, 0.0
+        ev = step(st, [Input()])
+        assert ("lose", 0) in ev and st.players[0].lives == life
+    assert st.mode == "over" and not st.players[0].alive
+
+
+def test_shield_saves_one_ball():
+    st = new_game(2)
+    st.players[0].shield = 1
+    step(st, [GO])
+    b = st.balls[0]
+    b.y, b.vy, b.vx = C.COURT_B + 20, 1.0, 0.0
+    ev = step(st, [Input()])
+    assert ("shield", 0) in ev and st.players[0].lives == C.LIVES and b.vy < 0
+
+
+def test_last_brick_crumbles_and_level_clears():
+    st = new_game(4)
+    st.bricks = st.bricks[:1]
+    st.last_brick_t = C.LAST_BRICK_T
+    pass
+    ticks = int(C.LAST_BRICK_T / C.TICK) + 2
+    for _ in range(ticks):
+        step(st, [Input()])
+        if st.mode != "play":
+            break
+    assert st.mode == "clear" and st.streak == 1
+    lvl = st.level
+    next_level(st)
+    assert st.level == lvl + 1 and st.bricks and st.balls[0].held
+
+
+def test_speed_climbs_with_hits_and_caps():
+    st = new_game(6)
+    step(st, [GO])
+    b = st.balls[0]
+    for _ in range(60):
+        b.x, b.y, b.vx, b.vy = st.players[0].x, C.PADDLE_Y - C.BALL_R - 1, 0.0, 1.0
+        step(st, [Input()])
+    assert b.speed == C.speed_cap(st.level) and st.paddle_hits == 60
+
+
+def test_helpful_drop_after_a_loss():
+    st = new_game(8)
+    st.last_loss_tick = st.tick
+    st.hits_since_loss = 0
+    from arch_breaker2.sim.step import _pick_kind
+    kinds = {_pick_kind(st) for _ in range(40)}
+    assert kinds <= {"wide", "shield"}
