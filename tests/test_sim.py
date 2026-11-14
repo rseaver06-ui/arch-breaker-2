@@ -127,3 +127,17 @@ def test_helpful_drop_after_a_loss():
     from arch_breaker2.sim.step import _pick_kind
     kinds = {_pick_kind(st) for _ in range(40)}
     assert kinds <= {"wide", "shield"}
+
+
+def test_theme_reloads_when_file_changes(tmp_path, monkeypatch):
+    import os, time
+    from arch_breaker2.render.theme import Theme
+    f = tmp_path / "colors.toml"
+    f.write_text('mode = "dark"\naccent = "#ff0000"\n')
+    monkeypatch.setenv("AB2_THEME", str(f))
+    th = Theme()
+    assert th.accent == (255, 0, 0) and th.dark
+    f.write_text('mode = "light"\naccent = "#00ff00"\n')
+    os.utime(f, (time.time() + 5, time.time() + 5))
+    th.last_check = 0
+    assert th.poll() and th.accent == (0, 255, 0) and not th.dark

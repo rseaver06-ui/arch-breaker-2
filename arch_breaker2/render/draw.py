@@ -90,7 +90,7 @@ def menu(c, th, f, title, items, sel, hint, sub=None):
     rows = [f.l.get_height() + 6] + [f.m.get_height() + 4] * len(items)
     if sub:
         rows.insert(1, f.s.get_height() * len(sub) + 6)
-    h = sum(rows) + 16
+    h = sum(rows) + 16 + f.s.get_height() + 10
     w = 220
     box = pygame.Rect(0, 0, w, h)
     box.center = (C.W // 2, C.H // 2)
@@ -109,4 +109,4 @@ def menu(c, th, f, title, items, sel, hint, sub=None):
             pygame.draw.rect(c, th.accent, (box.left + 10, y, w - 20, rh), border_radius=4)
         text(c, f.m, it, box.left + 18, y + rh // 2, th.bg if i == sel else th.fg, "midleft")
         y += rh
-    text(c, f.s, hint, C.W // 2, C.COURT_B - 10, th.fg_dark, "midbottom")
+    text(c, f.s, hint, box.centerx, box.bottom - 8, th.fg_dark, "midbottom")

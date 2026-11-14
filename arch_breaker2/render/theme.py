@@ -44,6 +44,9 @@ class Theme:
         return False
 
     def _find(self):
+        override = os.environ.get("AB2_THEME")
+        if override:
+            return override if os.path.isfile(override) else None
         for p in PATHS:
             if os.path.isfile(p):
                 return p
@@ -70,6 +73,7 @@ class Theme:
         self.bright = [_rgb(data.get("bright_" + h, data.get(h, FALLBACK[h]))) for h in HUES]
         self.players = [self.accent, g("magenta"), g("cyan"), g("yellow")]
         self.plate = (*(self.bg_darker if self.dark else self.bg_light), 215)
+        self.name = os.path.basename(os.path.dirname(os.path.realpath(self.path))) if self.path else "fallback"
 
     def row(self, r):
         return self.hues[r % len(self.hues)]

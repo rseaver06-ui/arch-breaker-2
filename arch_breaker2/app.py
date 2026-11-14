@@ -92,6 +92,9 @@ class App:
         if self.smoke:
             self.start("endless", 123)
             self.st.balls[0].held = False
+            sc = os.environ.get("AB2_SCENE")
+            if sc:
+                self.scene = sc
 
     # scenes -----------------------------------------------------------
     def start(self, mode, seed=None):
@@ -190,7 +193,7 @@ class App:
             draw.court(c, th)
             best = self.save["daily"].get(today(), 0)
             top = self.save["top"][0][0] if self.save["top"] else 0
-            sub = [f"today's best {best}", f"endless best {top}", f"best streak {self.save.get('streak', 0)}"]
+            sub = [f"today's best {best}", f"endless best {top}", f"best streak {self.save.get('streak', 0)}", f"theme {th.name}"]
             draw.menu(c, th, f, "ARCH BREAKER 2", TITLE_ITEMS, self.sel, "ENTER  Select     F11  Fullscreen", sub)
         else:
             draw.play(c, self.st, th, f, self.fx)
