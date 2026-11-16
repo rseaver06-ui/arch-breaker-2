@@ -4,7 +4,13 @@ A brick breaker built for Omarchy. It uses your Omarchy theme (and follows it wh
 
 ## Install
 
-Open a terminal in this folder and run:
+**Easiest:** add the Arch Breaker 2 bar plugin, then click its icon and choose **Install game**:
+
+```sh
+omarchy plugin add https://github.com/rseaver06-ui/arch-breaker-2-plugin.git --enable
+```
+
+**Or by hand:** get this folder (`git clone https://github.com/rseaver06-ui/arch-breaker-2.git`), open a terminal in it and run:
 
 ```sh
 sh packaging/install.sh
@@ -22,7 +28,7 @@ sh ~/.local/opt/arch-breaker-2/uninstall.sh
 
 Your save file (`~/.local/share/arch-breaker-2/save.json`) is never deleted.
 
-You can also play without installing: `python3 -m arch_breaker2` from this folder.
+You can also play without installing: `python3 -m arch_breaker2` from this folder. Add `--mode daily`, `--mode endless` or `--mode versus` to skip the title screen.
 
 ## How to play
 
@@ -83,6 +89,15 @@ From the title screen or the pause menu: music track (or Random, or Off), effect
 ## Theme
 
 Colors come from `~/.local/state/omarchy/current/theme/colors.toml` (older installs: `~/.config/omarchy/current/theme/colors.toml`), read-only, checked twice a second. Switch themes and the game recolors mid-rally. All 22 stock themes are checked, light ones included. If the file is missing, a built-in palette is used.
+
+## Feedback
+
+Found a bug or have an idea? Open an issue: https://github.com/rseaver06-ui/arch-breaker-2/issues
+Scores, questions, or want to help build online Versus? Say hello in Discussions: https://github.com/rseaver06-ui/arch-breaker-2/discussions
+
+## License
+
+Code: MIT (see `LICENSE`). Music: CC-BY 3.0 by Zodik.
 
 ## Credits
 

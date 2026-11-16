@@ -1,5 +1,6 @@
 """Window, scenes, fixed-step loop, save file, settings, and the small game-feel effects."""
 import datetime
+import sys
 import json
 import os
 import random
@@ -96,7 +97,7 @@ def read_inputs(keys, n):
 
 
 class App:
-    def __init__(self):
+    def __init__(self, mode=None):
         pygame.mixer.pre_init(22050, -16, 1, 512)
         pygame.init()
         pygame.display.set_caption("Arch Breaker 2")
@@ -122,6 +123,10 @@ class App:
         self.vs_cpu = False
         self.diff = 1
         self.smoke = int(os.environ.get("AB2_SMOKE", "0"))
+        if mode in ("daily", "endless"):
+            self.start(mode)
+        elif mode == "versus":
+            self.scene, self.vsel = "versus", 0
         if self.smoke:
             sc = os.environ.get("AB2_SCENE")
             if sc == "versus-play":
@@ -394,5 +399,13 @@ class App:
         pygame.quit()
 
 
-def main():
-    App().run()
+def main(argv=None):
+    """`--mode daily|endless|versus` skips the title screen (used by the Omarchy bar plugin)."""
+    argv = sys.argv[1:] if argv is None else argv
+    mode = None
+    for i, a in enumerate(argv):
+        if a.startswith("--mode="):
+            mode = a.split("=", 1)[1]
+        elif a == "--mode" and i + 1 < len(argv):
+            mode = argv[i + 1]
+    App(mode).run()
