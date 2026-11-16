@@ -1,5 +1,7 @@
 # Arch Breaker 2
 
+![Arch Breaker 2: Daily mode, live theme switching from the Omarchy theme picker, and vs CPU](docs/demo.gif)
+
 A brick breaker built for Omarchy. It uses your Omarchy theme (and follows it when you switch), the system font, and Omarchy-style menus, so it feels like part of the desktop. Fully offline. No accounts, no tracking.
 
 ## Install
